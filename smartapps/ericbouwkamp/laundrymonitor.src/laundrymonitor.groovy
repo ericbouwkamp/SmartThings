@@ -1,5 +1,5 @@
 /**
- *  LaundryMonitor
+ *  LaundryMonitor3
  *
  *  Copyright 2020 Eric Bouwkamp
  *
@@ -17,7 +17,7 @@ definition(
     name: "LaundryMonitor",
     namespace: "ericbouwkamp",
     author: "Eric Bouwkamp",
-    description: "Enable debounced notifications for laundry completion",
+    description: "Laundry Monitor",
     category: "My Apps",
     iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
     iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
@@ -25,58 +25,71 @@ definition(
 
 
 preferences {
-	section {
-		input(name: "meter", type: "capability.powerMeter", title: "When This Power Meter...", required: true, multiple: false, description: null)
+	section("Title") {
+    	input ("meter", "capability.powerMeter", title: "outlet", required: true, multiple: false, description: null)
         input(name: "wattageOn", type: "number", title: "wattage On Value", required: true, description: "Watts")
         input(name: "wattageOff", type: "number", title: "wattage Off Value", required: true, description: "Watts")
-        input(name: "delayTime", type: "number", title: "Debounce Time", required: true, description: "Seconds")
-	}
-    section {
-        input("recipients", "contact", title: "Send notifications to") {
         input(name: "pushNotification", type: "bool", title: "Send a push notification", description: null, defaultValue: true)
-        }
-    }
+
+	}
 }
 
 def installed() {
 	log.debug "Installed with settings: ${settings}"
+    log.debug "Meter Name = ${meter.displayName}"
+
 	initialize()
 }
 
 def updated() {
 	log.debug "Updated with settings: ${settings}"
+	unschedule()
 	unsubscribe()
 	initialize()
 }
 
 def initialize() {
-	subscribe(meter, "lastCheckin", meterHandler)
+	subscribe(meter, "power", meterHandler)
 }
 
+def unsubscribe()
+{
+}
+
+// TODO: implement event handlers
 def meterHandler(evt) 
 {
 	def powerValue = evt.value as double
 	def wattageOnValue = wattageOn as int
 	def wattageOffValue = wattageOff as int
 	
-	if ((powerValue > wattageOnValue) && !state.powerMemory)
+    if ((powerValue > wattageOnValue) && !state.powerMemory)
 	{
-		sendNotification("Washer Running")
-		state.powerMemory = t
+		state.powerMemory = true
+        log.debug("Power Memory True")
 	}
 
-	if ((powerValue <= wattageOffValue) && state.powerMemory)
+	if ((powerValue <= wattageOffValue) && state.powerMemory && !state.notificationScheduled)
 	{
-		sendNotification("Washer Finished")
-		state.powerMemory = f
+    	runIn(60*5,sendCompletedNotification)
+		log.debug "${meter.displayName} Notification Scheduled"
+        state.notificationScheduled = true
+		state.powerMemory = false
 	}
+    
+    if ((powerValue > wattageOffValue) && state.notificationScheduled)
+    {
+    	unschedule()
+		log.debug "${meter.displayName} Notification Unscheduled"
+        state.notificationScheduled = false
+		state.powerMemory = true
+    }
 }
 
-
-def sendNotification(notification) {
+def sendCompletedNotification() {
     if (pushNotification)
     {
-        sendPush(notification)
-        log.debug(notification)
+        sendPush("${meter.displayName} Cycle Completed")
     }
+    log.debug("${meter.displayName} Cycle Completed")
 }
